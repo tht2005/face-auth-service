@@ -1,0 +1,7 @@
+.env
+
+__pycache__
+
+./vault_kms/data
+
+./postgres/data
