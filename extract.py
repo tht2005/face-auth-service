@@ -89,6 +89,11 @@ def retrieve_face_emb_from_webcam(st_frame=None):
             rgb_live = cv2.cvtColor(display_small, cv2.COLOR_BGR2RGB)
             st_frame.image(rgb_live, channels="RGB")
 
+            if face_detected_start_time is not None:
+                time.sleep(0.04)
+            else:
+                time.sleep(0.01)
+
     stop_event.set()
     ai_thread.join(timeout=5)
     cap.release()
