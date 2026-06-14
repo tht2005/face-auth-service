@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FaceID Verification Portal</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="background-radial"></div>
+    
+    <div class="app-container">
+        <header>
+            <div class="logo">👤</div>
+            <h1>FaceID Verification Portal</h1>
+            <p class="subtitle">Secure Biometric Registration & Authentication</p>
+        </header>
+
+        <main class="glass-card">
+            <!-- Auth Success Card -->
+            <div class="success-card" id="success-card" style="display: none;">
+                <div class="success-icon">🎉</div>
+                <h2>Login Successful!</h2>
+                <p>Welcome back, <span id="success-user" class="highlight-text">User</span></p>
+                <div class="token-details">
+                    <p><strong>Session JWT Token:</strong></p>
+                    <textarea id="jwt-token-display" readonly></textarea>
+                </div>
+                <button class="btn btn-secondary" onclick="resetAuthSession()">Sign Out</button>
+            </div>
+
+            <!-- Main Tabs Content -->
+            <div id="auth-flow-container">
+                <div class="tabs">
+                    <button class="tab-btn active" id="tab-register-btn" onclick="switchTab('register')">Register</button>
+                    <button class="tab-btn" id="tab-login-btn" onclick="switchTab('login')">Login</button>
+                </div>
+
+                <!-- Tab Content: Register -->
+                <div class="tab-content active" id="register-content">
+                    <form id="register-form" onsubmit="handleRegister(event)">
+                        <div class="input-group">
+                            <label for="reg-username">Username</label>
+                            <input type="text" id="reg-username" placeholder="e.g. janesmith" required>
+                        </div>
+                        <div class="input-group">
+                            <label for="reg-fullname">Full Name</label>
+                            <input type="text" id="reg-fullname" placeholder="e.g. Jane Smith" required>
+                        </div>
+
+                        <div class="camera-section">
+                            <p class="section-title">FaceID Enrollment</p>
+                            <div class="camera-wrapper">
+                                <video id="reg-video" autoplay playsinline muted></video>
+                                <canvas id="reg-canvas" style="display: none;"></canvas>
+                                <div class="scanner-overlay" id="reg-scanner-overlay">
+                                    <div class="scanning-laser"></div>
+                                </div>
+                                <div class="camera-status" id="reg-camera-status">Camera Off</div>
+                            </div>
+                            <div class="camera-controls">
+                                <button type="button" class="btn btn-secondary" id="reg-start-btn" onclick="toggleCamera('reg')">Turn On Camera</button>
+                                <button type="button" class="btn btn-primary" id="reg-capture-btn" onclick="captureSnapshot('reg')" disabled>Scan Face</button>
+                            </div>
+                            <div class="snapshot-preview" id="reg-preview-container" style="display: none;">
+                                <p>Captured Snapshot:</p>
+                                <img id="reg-preview-img" src="" alt="Snapshot Preview">
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-action" id="register-submit-btn" disabled>Register Account</button>
+                    </form>
+                </div>
+
+                <!-- Tab Content: Login -->
+                <div class="tab-content" id="login-content">
+                    <form id="login-form" onsubmit="handleLogin(event)">
+                        <div class="input-group">
+                            <label for="login-username">Username</label>
+                            <input type="text" id="login-username" placeholder="Enter your registered username" required>
+                        </div>
+
+                        <div class="camera-section">
+                            <p class="section-title">FaceID Scanner</p>
+                            <div class="camera-wrapper">
+                                <video id="login-video" autoplay playsinline muted></video>
+                                <canvas id="login-canvas" style="display: none;"></canvas>
+                                <div class="scanner-overlay" id="login-scanner-overlay">
+                                    <div class="scanning-laser"></div>
+                                </div>
+                                <div class="camera-status" id="login-camera-status">Camera Off</div>
+                            </div>
+                            <div class="camera-controls">
+                                <button type="button" class="btn btn-secondary" id="login-start-btn" onclick="toggleCamera('login')">Turn On Camera</button>
+                                <button type="button" class="btn btn-primary" id="login-capture-btn" onclick="captureSnapshot('login')" disabled>Scan & Validate</button>
+                            </div>
+                            <div class="snapshot-preview" id="login-preview-container" style="display: none;">
+                                <p>Sending biometric data...</p>
+                                <img id="login-preview-img" src="" alt="Snapshot Preview">
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Global Status Notification Messages -->
+            <div class="message-box" id="message-box" style="display: none;">
+                <div class="message-icon" id="message-icon"></div>
+                <div class="message-text" id="message-text"></div>
+            </div>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
