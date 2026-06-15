@@ -157,6 +157,13 @@ async function handleRegister(event) {
     formData.append('full_name', fullname);
     formData.append('file', capturedBlob, 'face.jpg');
     
+    const livenessEnabled = document.getElementById('liveness-enabled').checked;
+    formData.append('liveness_enabled', livenessEnabled);
+    formData.append('min_laplacian', document.getElementById('min-laplacian').value);
+    formData.append('min_fft', document.getElementById('min-fft').value);
+    formData.append('max_fft', document.getElementById('max-fft').value);
+    formData.append('max_glare', document.getElementById('max-glare').value);
+    
     try {
         const response = await fetch('/api/register', {
             method: 'POST',
@@ -195,11 +202,37 @@ async function submitLogin() {
         return;
     }
     
+    showMessage("Requesting security challenge...", "info");
+    
+    let challengeToken;
+    try {
+        const challengeResponse = await fetch(`/api/auth/challenge?username=${encodeURIComponent(username)}`);
+        const challengeData = await challengeResponse.json();
+        
+        if (!challengeResponse.ok) {
+            showMessage(challengeData.detail || "Failed to generate security challenge.", "error");
+            return;
+        }
+        challengeToken = challengeData.challenge_token;
+    } catch (err) {
+        console.error("Challenge error:", err);
+        showMessage("Connection error. Could not request security challenge.", "error");
+        return;
+    }
+    
     showMessage("Performing biometric match...", "info");
     
     const formData = new FormData();
     formData.append('username', username);
     formData.append('file', capturedBlob, 'face.jpg');
+    formData.append('challenge_token', challengeToken);
+    
+    const livenessEnabled = document.getElementById('liveness-enabled').checked;
+    formData.append('liveness_enabled', livenessEnabled);
+    formData.append('min_laplacian', document.getElementById('min-laplacian').value);
+    formData.append('min_fft', document.getElementById('min-fft').value);
+    formData.append('max_fft', document.getElementById('max-fft').value);
+    formData.append('max_glare', document.getElementById('max-glare').value);
     
     try {
         const response = await fetch('/api/login', {
@@ -256,4 +289,17 @@ function showMessage(text, type) {
 
 function hideMessage() {
     document.getElementById('message-box').style.display = 'none';
+}
+
+function updateSliderVal(id) {
+    const valSpan = document.getElementById(`val-${id}`);
+    const input = document.getElementById(id);
+    valSpan.textContent = input.value;
+}
+
+function toggleLivenessInputs() {
+    const isEnabled = document.getElementById('liveness-enabled').checked;
+    const grid = document.getElementById('sliders-grid');
+    grid.style.opacity = isEnabled ? '1' : '0.4';
+    grid.style.pointerEvents = isEnabled ? 'auto' : 'none';
 }

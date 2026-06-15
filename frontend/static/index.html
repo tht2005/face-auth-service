@@ -37,6 +37,39 @@
                     <button class="tab-btn" id="tab-login-btn" onclick="switchTab('login')">Login</button>
                 </div>
 
+                <!-- Liveness Settings Panel -->
+                <details class="settings-details">
+                    <summary>⚙️ Biometric Security Settings</summary>
+                    <div class="settings-content">
+                        <div class="toggle-group">
+                            <label for="liveness-enabled">Enable Anti-Spoofing (Liveness Check)</label>
+                            <input type="checkbox" id="liveness-enabled" checked onchange="toggleLivenessInputs()">
+                        </div>
+                        <div class="sliders-grid" id="sliders-grid">
+                            <div class="slider-control">
+                                <label for="min-laplacian">Min Laplacian Variance: <span id="val-min-laplacian">30</span></label>
+                                <input type="range" id="min-laplacian" min="5" max="250" value="30" oninput="updateSliderVal('min-laplacian')">
+                                <span class="slider-desc">Blocks paper textures. Lower = more lenient.</span>
+                            </div>
+                            <div class="slider-control">
+                                <label for="min-fft">Min FFT Ratio: <span id="val-min-fft">0.05</span></label>
+                                <input type="range" id="min-fft" min="0.01" max="0.30" step="0.01" value="0.05" oninput="updateSliderVal('min-fft')">
+                                <span class="slider-desc">Blocks printed textures. Lower = more lenient.</span>
+                            </div>
+                            <div class="slider-control">
+                                <label for="max-fft">Max FFT Ratio: <span id="val-max-fft">0.65</span></label>
+                                <input type="range" id="max-fft" min="0.20" max="0.90" step="0.01" value="0.65" oninput="updateSliderVal('max-fft')">
+                                <span class="slider-desc">Blocks screen grid moiré. Higher = more lenient.</span>
+                            </div>
+                            <div class="slider-control">
+                                <label for="max-glare">Max Glare Ratio: <span id="val-max-glare">0.15</span></label>
+                                <input type="range" id="max-glare" min="0.01" max="0.40" step="0.01" value="0.15" oninput="updateSliderVal('max-glare')">
+                                <span class="slider-desc">Blocks glassy reflections. Higher = more lenient.</span>
+                            </div>
+                        </div>
+                    </div>
+                </details>
+
                 <!-- Tab Content: Register -->
                 <div class="tab-content active" id="register-content">
                     <form id="register-form" onsubmit="handleRegister(event)">

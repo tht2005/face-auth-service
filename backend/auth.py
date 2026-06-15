@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 import numpy as np
 import jwt
 import datetime
+import secrets
 from backend.vault import encrypt_vector, decrypt_vector
 
 load_dotenv()
@@ -99,3 +100,36 @@ def decode_jwt_token(token: str) -> dict:
         raise ValueError("Session expired. Please log in again.")
     except jwt.InvalidTokenError:
         raise ValueError("Invalid session token.")
+
+def create_challenge_token(username: str) -> str:
+    """
+    Generates a cryptographically signed challenge token valid for 60 seconds.
+    """
+    payload = {
+        "sub": username,
+        "nonce": secrets.token_hex(16),
+        "exp": datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=60),
+        "iat": datetime.datetime.now(datetime.timezone.utc),
+        "type": "challenge"
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+def verify_challenge_token(token: str, expected_username: str) -> bool:
+    """
+    Decodes and verifies the challenge token signature, expiration, type, and username.
+    Raises ValueError if validation fails.
+    """
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        raise ValueError("Biometric challenge token expired. Please try scanning again.")
+    except jwt.InvalidTokenError:
+        raise ValueError("Invalid challenge token.")
+        
+    if payload.get("type") != "challenge":
+        raise ValueError("Incorrect token type presented.")
+        
+    if payload.get("sub") != expected_username:
+        raise ValueError("Challenge token username mismatch.")
+        
+    return True

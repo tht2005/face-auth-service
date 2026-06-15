@@ -3,7 +3,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import logging
 from backend.extract import extract_face_embedding
-from backend.auth import register, validation, create_jwt_token, decode_jwt_token
+from backend.auth import (
+    register, 
+    validation, 
+    create_jwt_token, 
+    decode_jwt_token,
+    create_challenge_token,
+    verify_challenge_token
+)
 
 # Setup Logging
 logging.basicConfig(level=logging.INFO)
@@ -24,19 +31,31 @@ app.add_middleware(
 async def api_register(
     username: str = Form(...),
     full_name: str = Form(...),
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    liveness_enabled: bool = Form(True),
+    min_laplacian: float = Form(30.0),
+    min_fft: float = Form(0.05),
+    max_fft: float = Form(0.65),
+    max_glare: float = Form(0.15)
 ):
     try:
         # Read upload image bytes
         image_bytes = await file.read()
         
-        # Extract face embedding (checks for single face & validity)
-        emb = extract_face_embedding(image_bytes)
+        # Extract face embedding with dynamically configured liveness checks
+        emb = extract_face_embedding(
+            image_bytes,
+            liveness_enabled=liveness_enabled,
+            min_laplacian=min_laplacian,
+            min_fft=min_fft,
+            max_fft=max_fft,
+            max_glare=max_glare
+        )
         
         # Register user (encrypts embedding and saves to DB)
         register(username, full_name, emb)
         
-        logger.info(f"Registered user: {username}")
+        logger.info(f"Registered user: {username} (liveness_check={liveness_enabled})")
         return {"status": "success", "message": f"User '{username}' registered successfully."}
         
     except ValueError as e:
@@ -46,17 +65,44 @@ async def api_register(
         logger.error(f"Error during registration of {username}: {e}")
         raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
 
+@app.get("/api/auth/challenge")
+async def get_challenge(username: str):
+    if not username:
+        raise HTTPException(status_code=400, detail="Username query parameter is required.")
+    challenge_token = create_challenge_token(username)
+    return {"status": "success", "challenge_token": challenge_token}
+
 @app.post("/api/login")
 async def api_login(
     username: str = Form(...),
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    challenge_token: str = Form(...),
+    liveness_enabled: bool = Form(True),
+    min_laplacian: float = Form(30.0),
+    min_fft: float = Form(0.05),
+    max_fft: float = Form(0.65),
+    max_glare: float = Form(0.15)
 ):
     try:
+        # Verify the signed challenge token first to prevent replay attacks
+        try:
+            verify_challenge_token(challenge_token, username)
+        except ValueError as e:
+            logger.warning(f"Challenge verification failed for {username}: {e}")
+            raise HTTPException(status_code=400, detail=str(e))
+
         # Read upload image bytes
         image_bytes = await file.read()
         
-        # Extract live face embedding
-        live_emb = extract_face_embedding(image_bytes)
+        # Extract live face embedding with dynamic liveness checks
+        live_emb = extract_face_embedding(
+            image_bytes,
+            liveness_enabled=liveness_enabled,
+            min_laplacian=min_laplacian,
+            min_fft=min_fft,
+            max_fft=max_fft,
+            max_glare=max_glare
+        )
         
         # Match embedding with DB (decrypts DB embedding using Vault)
         is_match, full_name, sim = validation(username, live_emb)
@@ -64,7 +110,7 @@ async def api_login(
         if is_match:
             # Issue session JWT
             token = create_jwt_token(username, full_name)
-            logger.info(f"User '{username}' logged in successfully.")
+            logger.info(f"User '{username}' logged in successfully. (liveness_check={liveness_enabled})")
             return {
                 "status": "success",
                 "token": token,
