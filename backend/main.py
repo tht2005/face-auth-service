@@ -122,6 +122,8 @@ async def api_login(
             logger.warning(f"Login attempt failed for '{username}': Face did not match.")
             raise HTTPException(status_code=401, detail="Authentication failed: Face does not match.")
             
+    except HTTPException as e:
+        raise e
     except ValueError as e:
         logger.warning(f"Login validation failed for {username}: {e}")
         raise HTTPException(status_code=400, detail=str(e))
