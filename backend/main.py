@@ -18,6 +18,12 @@ logger = logging.getLogger("face-auth-api")
 
 app = FastAPI(title="Face Verification API Service")
 
+@app.on_event("startup")
+def startup_event():
+    from backend.auth import init_db
+    init_db()
+    logger.info("SQLite database tables initialized successfully.")
+
 # Configure CORS for ease of access
 app.add_middleware(
     CORSMiddleware,

@@ -14,20 +14,6 @@ services:
     command: vault server -config=/vault/config/config.hcl
     restart: always
 
-  postgres_db:
-    image: postgres:15-alpine
-    container_name: attt-postgres-container
-    ports:
-      - "5432:5432"
-    environment:
-      - POSTGRES_USER=ekyc_admin
-      - POSTGRES_PASSWORD=SuperStrongPass!No1
-      - POSTGRES_DB=ekyc_matrix
-    volumes:
-      - ./postgres/data:/var/lib/postgresql/data
-      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
-    restart: always
-
   backend:
     build:
       context: .
@@ -41,11 +27,9 @@ services:
     env_file:
       - .env
     environment:
-      - DB_HOST=postgres_db
       - VAULT_URL=http://vault_kms:8200
     command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
-      - postgres_db
       - vault_kms
     restart: always
 

@@ -28,10 +28,9 @@ except ImportError:
     sys.exit(1)
 
 try:
-    import psycopg2
+    import sqlite3
 except ImportError:
-    print(f"{RED}Error: 'psycopg2' library is not installed.{RESET}")
-    print(f"Please run: {YELLOW}pip install psycopg2-binary{RESET}")
+    print(f"{RED}Error: 'sqlite3' module is not available.{RESET}")
     sys.exit(1)
 
 try:
@@ -155,21 +154,11 @@ def demo_jwt_manipulation():
 def demo_database_leakage():
     print_header("KỊCH BẢN 3: DATABASE LEAKAGE (RÒ RỈ DỮ LIỆU SINH TRẮC)")
     
-    db_host = os.getenv("DB_HOST", "localhost")
-    db_port = os.getenv("DB_PORT", "5432")
-    db_user = os.getenv("DB_USER", "ekyc_admin")
-    db_password = os.getenv("DB_PASSWORD", "SuperStrongPass!No1")
-    db_name = os.getenv("DB_NAME", "ekyc_matrix")
+    db_path = os.getenv("DB_PATH", "backend/ekyc_matrix.db")
     
-    print(f"{CYAN}[*] Kết nối trực tiếp cơ sở dữ liệu PostgreSQL tại {db_host}:{db_port}...{RESET}")
+    print(f"{CYAN}[*] Kết nối trực tiếp cơ sở dữ liệu SQLite tại {db_path}...{RESET}")
     try:
-        conn = psycopg2.connect(
-            host=db_host,
-            port=db_port,
-            database=db_name,
-            user=db_user,
-            password=db_password
-        )
+        conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         print(f"{GREEN}[+] Kết nối thành công! Đang truy vấn bảng 'users' để đánh cắp dữ liệu...{RESET}")
         
@@ -199,9 +188,9 @@ def demo_database_leakage():
         cursor.close()
         conn.close()
     except Exception as e:
-        print(f"{RED}[-]- LỖI: Không thể kết nối tới cơ sở dữ liệu.{RESET}")
+        print(f"{RED}[-] LỖI: Không thể kết nối tới cơ sở dữ liệu.{RESET}")
         print(f"    Chi tiết: {e}")
-        print(f"    (Hãy chắc chắn cổng {db_port} đã được map ra ngoài host hoặc kiểm tra cấu hình .env){RESET}")
+        print(f"    (Hãy chắc chắn đường dẫn {db_path} là chính xác và file cơ sở dữ liệu đã tồn tại.){RESET}")
 
 def main():
     while True:

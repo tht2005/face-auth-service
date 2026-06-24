@@ -1,5 +1,5 @@
 import os
-import psycopg2
+import sqlite3
 from dotenv import load_dotenv
 import numpy as np
 import jwt
@@ -13,13 +13,31 @@ JWT_SECRET = os.getenv("JWT_SECRET", "supersecretjwtkey123!")
 JWT_ALGORITHM = "HS256"
 
 def get_db_connection():
-    return psycopg2.connect(
-        host=os.getenv("DB_HOST", "localhost"),
-        port=os.getenv("DB_PORT", "5432"),
-        database=os.getenv("DB_NAME", "ekyc_matrix"),
-        user=os.getenv("DB_USER", "ekyc_admin"),
-        password=os.getenv("DB_PASSWORD", "SuperStrongPass!No1")
-    )
+    db_path = os.getenv("DB_PATH", "backend/ekyc_matrix.db")
+    return sqlite3.connect(db_path)
+
+def init_db():
+    db_path = os.getenv("DB_PATH", "backend/ekyc_matrix.db")
+    db_dir = os.path.dirname(db_path)
+    if db_dir and not os.path.exists(db_dir):
+        os.makedirs(db_dir, exist_ok=True)
+        
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username VARCHAR(50) UNIQUE NOT NULL,
+        full_name VARCHAR(100) NOT NULL,
+        face_embedding_encrypted TEXT NOT NULL,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_login TIMESTAMP
+    );
+    """)
+    conn.commit()
+    cursor.close()
+    conn.close()
 
 def register(username, fullname, face_emb):
     """
@@ -33,7 +51,7 @@ def register(username, fullname, face_emb):
     try:
         query = """
         INSERT INTO users (username, full_name, face_embedding_encrypted)
-        VALUES (%s, %s, %s);
+        VALUES (?, ?, ?);
         """
         cursor.execute(query, (username, fullname, encrypted_str))
         conn.commit()
@@ -55,7 +73,7 @@ def validation(username, current_face_emb):
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    query = "SELECT face_embedding_encrypted, is_active, full_name FROM users WHERE username = %s;"
+    query = "SELECT face_embedding_encrypted, is_active, full_name FROM users WHERE username = ?;"
     cursor.execute(query, (username,))
     result = cursor.fetchone()
 

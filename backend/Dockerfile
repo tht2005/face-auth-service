@@ -17,7 +17,6 @@ RUN pip install --no-cache-dir \
     uvicorn \
     insightface \
     hvac \
-    psycopg2-binary \
     numpy \
     python-multipart \
     pyjwt \
