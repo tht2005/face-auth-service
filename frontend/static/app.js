@@ -1,6 +1,7 @@
 let currentTab = 'register';
 let activeStream = null;
 let capturedBlob = null;
+let loginChallengeToken = null;
 
 function switchTab(tab) {
     if (tab === currentTab) return;
@@ -10,7 +11,11 @@ function switchTab(tab) {
     
     // Reset state
     capturedBlob = null;
+    loginChallengeToken = null;
     hideMessage();
+    
+    // Hide gesture challenge
+    document.getElementById('login-gesture-container').style.display = 'none';
     
     // Toggle active tab buttons
     document.getElementById(`tab-register-btn`).classList.toggle('active', tab === 'register');
@@ -52,6 +57,11 @@ async function toggleCamera(mode) {
         statusText.textContent = "Camera Off";
         statusText.style.display = 'block';
         captureBtn.disabled = true;
+        
+        if (mode === 'login') {
+            document.getElementById('login-gesture-container').style.display = 'none';
+            // Do not clear loginChallengeToken here because it is needed in submitLogin() immediately after capture
+        }
     } else {
         // Check for secure context and mediaDevices support
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -62,10 +72,52 @@ async function toggleCamera(mode) {
             return;
         }
 
+        if (mode === 'login') {
+            const username = document.getElementById('login-username').value.trim();
+            if (!username) {
+                showMessage("Please enter your username first to get a security challenge.", "error");
+                return;
+            }
+            
+            statusText.textContent = "Requesting security challenge...";
+            statusText.style.display = 'block';
+            hideMessage();
+            
+            try {
+                const response = await fetch(`/api/auth/challenge?username=${encodeURIComponent(username)}`);
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    statusText.textContent = "Challenge Failed";
+                    showMessage(data.detail || "Failed to retrieve security challenge.", "error");
+                    return;
+                }
+                
+                loginChallengeToken = data.challenge_token;
+                const gesture = data.gesture;
+                
+                // Set visual gesture instructions
+                let instructionText = "Nhìn thẳng vào camera";
+                if (gesture === "LOOK_LEFT") instructionText = "👈 HÃY QUAY MẶT SANG BÊN TRÁI CỦA BẠN (Look Left)";
+                else if (gesture === "LOOK_RIGHT") instructionText = "👉 HÃY QUAY MẶT SANG BÊN PHẢI CỦA BẠN (Look Right)";
+                else if (gesture === "LOOK_UP") instructionText = "👆 HÃY NGẨNG MẶT LÊN TRÊN (Look Up)";
+                else if (gesture === "LOOK_DOWN") instructionText = "👇 HÃY CÚI MẶT XUỐNG DƯỚI (Look Down)";
+                else if (gesture === "NORMAL") instructionText = "😐 HÃY NHÌN THẲNG VÀO CAMERA (Look Straight)";
+                
+                document.getElementById('login-gesture-instruction').textContent = instructionText;
+                document.getElementById('login-gesture-container').style.display = 'block';
+            } catch (err) {
+                console.error(err);
+                statusText.textContent = "Network Error";
+                showMessage("Connection error. Could not request security challenge from backend.", "error");
+                return;
+            }
+        }
+
         // Turn on camera
         statusText.textContent = "Connecting to camera...";
         statusText.style.display = 'block';
-        hideMessage();
+        if (mode === 'reg') hideMessage();
         
         try {
             activeStream = await navigator.mediaDevices.getUserMedia({
@@ -79,6 +131,10 @@ async function toggleCamera(mode) {
             console.error("Camera access error:", err);
             statusText.textContent = "Camera access denied";
             showMessage(`Could not access camera: ${err.message || err}. Please check permissions.`, "error");
+            if (mode === 'login') {
+                document.getElementById('login-gesture-container').style.display = 'none';
+                loginChallengeToken = null;
+            }
         }
     }
 }
@@ -107,9 +163,13 @@ function captureSnapshot(mode) {
     canvas.width = video.videoWidth || 640;
     canvas.height = video.videoHeight || 480;
     
-    // Draw current frame to canvas
+    // Draw current frame to canvas (mirrored to match the preview and align coordinates)
     const ctx = canvas.getContext('2d');
+    ctx.save();
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    ctx.restore();
     
     // Show laser animation temporarily to simulate scan
     laserOverlay.style.display = 'block';
@@ -190,6 +250,22 @@ async function handleRegister(event) {
     }
 }
 
+async function handleLogin(event) {
+    event.preventDefault();
+    const usernameInput = document.getElementById('login-username');
+    const username = usernameInput ? usernameInput.value.trim() : "";
+    if (!username) {
+        showMessage("Please enter your username first.", "error");
+        return;
+    }
+    
+    if (!activeStream) {
+        await toggleCamera('login');
+    } else {
+        captureSnapshot('login');
+    }
+}
+
 async function submitLogin() {
     const username = document.getElementById('login-username').value.trim();
     if (!username) {
@@ -202,30 +278,21 @@ async function submitLogin() {
         return;
     }
     
-    showMessage("Requesting security challenge...", "info");
-    
-    let challengeToken;
-    try {
-        const challengeResponse = await fetch(`/api/auth/challenge?username=${encodeURIComponent(username)}`);
-        const challengeData = await challengeResponse.json();
-        
-        if (!challengeResponse.ok) {
-            showMessage(challengeData.detail || "Failed to generate security challenge.", "error");
-            return;
-        }
-        challengeToken = challengeData.challenge_token;
-    } catch (err) {
-        console.error("Challenge error:", err);
-        showMessage("Connection error. Could not request security challenge.", "error");
+    if (!loginChallengeToken) {
+        showMessage("Security challenge missing. Turn on camera to retrieve it.", "error");
         return;
     }
     
-    showMessage("Performing biometric match...", "info");
+    showMessage("Performing biometric match and verifying gesture challenge...", "info");
+    
+    // Store token locally and clear global reference immediately to prevent reuse
+    const tokenToSend = loginChallengeToken;
+    loginChallengeToken = null;
     
     const formData = new FormData();
     formData.append('username', username);
     formData.append('file', capturedBlob, 'face.jpg');
-    formData.append('challenge_token', challengeToken);
+    formData.append('challenge_token', tokenToSend);
     
     const livenessEnabled = document.getElementById('liveness-enabled').checked;
     formData.append('liveness_enabled', livenessEnabled);
@@ -246,7 +313,7 @@ async function submitLogin() {
             hideMessage();
             showSuccessState(data.full_name, data.token);
         } else {
-            showMessage(data.detail || "Login failed. Face did not match.", "error");
+            showMessage(data.detail || "Login failed. Face or gesture did not match.", "error");
         }
     } catch (err) {
         console.error(err);
@@ -268,7 +335,9 @@ function resetAuthSession() {
     // Clear forms
     document.getElementById('login-form').reset();
     document.getElementById('login-preview-container').style.display = 'none';
+    document.getElementById('login-gesture-container').style.display = 'none';
     capturedBlob = null;
+    loginChallengeToken = null;
     hideMessage();
 }
 
@@ -303,3 +372,5 @@ function toggleLivenessInputs() {
     grid.style.opacity = isEnabled ? '1' : '0.4';
     grid.style.pointerEvents = isEnabled ? 'auto' : 'none';
 }
+
+

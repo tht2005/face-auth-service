@@ -2,6 +2,7 @@ from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Depends, Hea
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import logging
+from contextlib import asynccontextmanager
 from backend.extract import extract_face_embedding
 from backend.auth import (
     register, 
@@ -16,13 +17,15 @@ from backend.auth import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("face-auth-api")
 
-app = FastAPI(title="Face Verification API Service")
-
-@app.on_event("startup")
-def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Initialize SQLite database tables
     from backend.auth import init_db
     init_db()
     logger.info("SQLite database tables initialized successfully.")
+    yield
+
+app = FastAPI(title="Face Verification API Service", lifespan=lifespan)
 
 # Configure CORS for ease of access
 app.add_middleware(
@@ -71,12 +74,29 @@ async def api_register(
         logger.error(f"Error during registration of {username}: {e}")
         raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
 
+@app.get("/api/certs")
+async def get_certs():
+    """
+    Exposes the public key in PEM format so that other services can verify user session JWTs.
+    """
+    from backend.auth import PUBLIC_KEY
+    return {"status": "success", "public_key": PUBLIC_KEY.decode("utf-8")}
+
 @app.get("/api/auth/challenge")
 async def get_challenge(username: str):
     if not username:
         raise HTTPException(status_code=400, detail="Username query parameter is required.")
-    challenge_token = create_challenge_token(username)
-    return {"status": "success", "challenge_token": challenge_token}
+    
+    import random
+    gestures = ["LOOK_LEFT", "LOOK_RIGHT", "LOOK_UP", "LOOK_DOWN", "NORMAL"]
+    selected_gesture = random.choice(gestures)
+    
+    challenge_token = create_challenge_token(username, gesture=selected_gesture)
+    return {
+        "status": "success", 
+        "challenge_token": challenge_token,
+        "gesture": selected_gesture
+    }
 
 @app.post("/api/login")
 async def api_login(
@@ -90,20 +110,27 @@ async def api_login(
     max_glare: float = Form(0.15)
 ):
     try:
+        # Check if user exists and is active before doing expensive face analysis
+        from backend.auth import check_user_status
+        check_user_status(username)
+
         # Verify the signed challenge token first to prevent replay attacks
         try:
-            verify_challenge_token(challenge_token, username)
+            challenge_payload = verify_challenge_token(challenge_token, username)
         except ValueError as e:
             logger.warning(f"Challenge verification failed for {username}: {e}")
             raise HTTPException(status_code=400, detail=str(e))
 
+        required_gesture = challenge_payload.get("gesture", "NORMAL")
+
         # Read upload image bytes
         image_bytes = await file.read()
         
-        # Extract live face embedding with dynamic liveness checks
+        # Extract live face embedding with dynamic liveness checks (passive + active)
         live_emb = extract_face_embedding(
             image_bytes,
             liveness_enabled=liveness_enabled,
+            required_gesture=required_gesture,
             min_laplacian=min_laplacian,
             min_fft=min_fft,
             max_fft=max_fft,
@@ -151,7 +178,10 @@ async def api_verify(authorization: str = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header.")
         
-    token = authorization.split(" ")[1]
+    parts = authorization.split(" ")
+    if len(parts) != 2:
+        raise HTTPException(status_code=401, detail="Invalid Authorization header format. Expected 'Bearer <token>'.")
+    token = parts[1]
     try:
         payload = decode_jwt_token(token)
         return {

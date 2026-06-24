@@ -20,6 +20,7 @@ RUN pip install --no-cache-dir \
     numpy \
     python-multipart \
     pyjwt \
+    cryptography \
     python-dotenv \
     onnxruntime && \
     pip uninstall -y opencv-python opencv-python-headless && \

@@ -79,9 +79,60 @@ def check_passive_liveness(
         
     return True
 
+def check_active_liveness(
+    pose: np.ndarray,
+    required_gesture: str
+) -> bool:
+    """
+    Checks if the detected face pose matches the required active liveness gesture.
+    pose: [pitch, yaw, roll] in degrees
+    """
+    if required_gesture == "NONE" or not required_gesture:
+        return True
+
+    if pose is None or len(pose) < 3:
+        raise ValueError("Biometric liveness check failed: Could not estimate face pose for active liveness verification.")
+        
+    pitch, yaw, roll = pose
+    
+    print(f"[ACTIVE LIVENESS DEBUG] Pose: pitch={pitch:.2f}, yaw={yaw:.2f}, roll={roll:.2f} | Required: {required_gesture}")
+          
+    if required_gesture == "NORMAL":
+        # Face should look straight: yaw, pitch, roll all close to 0.
+        # Enforce a relaxed threshold for real-world laptop webcam angles (which look up at the face)
+        if abs(yaw) > 15 or abs(pitch) > 18 or abs(roll) > 15:
+            raise ValueError(f"Biometric liveness check failed: Please look straight at the camera. (Yaw: {yaw:.1f}, Pitch: {pitch:.1f}, Roll: {roll:.1f})")
+    elif required_gesture == "LOOK_LEFT":
+        # User looks left: their head turns left, yaw should be negative (typically yaw < -12)
+        if yaw >= -12:
+            raise ValueError(f"Biometric liveness check failed: Please turn your head to the LEFT (Yaw: {yaw:.1f} >= -12).")
+    elif required_gesture == "LOOK_RIGHT":
+        # User looks right: their head turns right, yaw should be positive (typically yaw > 12)
+        if yaw <= 12:
+            raise ValueError(f"Biometric liveness check failed: Please turn your head to the RIGHT (Yaw: {yaw:.1f} <= 12).")
+    elif required_gesture == "LOOK_UP":
+        # User looks up: pitch should be positive (typically pitch > 12)
+        if pitch <= 12:
+            raise ValueError(f"Biometric liveness check failed: Please look UP (Pitch: {pitch:.1f} <= 12).")
+    elif required_gesture == "LOOK_DOWN":
+        # User looks down: pitch should be negative (typically pitch < -12)
+        if pitch >= -12:
+            raise ValueError(f"Biometric liveness check failed: Please look DOWN (Pitch: {pitch:.1f} >= -12).")
+    elif required_gesture == "TILT_LEFT":
+        # User tilts head left: roll should be negative (typically roll < -10)
+        if roll >= -10:
+            raise ValueError(f"Biometric liveness check failed: Please tilt your head to the LEFT (Roll: {roll:.1f} >= -10).")
+    elif required_gesture == "TILT_RIGHT":
+        # User tilts head right: roll should be positive (typically roll > 10)
+        if roll <= 10:
+            raise ValueError(f"Biometric liveness check failed: Please tilt your head to the RIGHT (Roll: {roll:.1f} <= 10).")
+            
+    return True
+
 def extract_face_embedding(
     image_bytes: bytes,
     liveness_enabled: bool = True,
+    required_gesture: str = "NONE",
     min_laplacian: float = 30.0,
     min_fft: float = 0.05,
     max_fft: float = 0.65,
@@ -89,7 +140,7 @@ def extract_face_embedding(
 ) -> np.ndarray:
     """
     Decodes an image from raw bytes, runs face detection, 
-    applies optional liveness checks, and returns the embedding.
+    applies optional passive and active liveness checks, and returns the embedding.
     """
     # Convert image bytes to numpy array and decode
     nparr = np.frombuffer(image_bytes, np.uint8)
@@ -109,6 +160,7 @@ def extract_face_embedding(
         
     # Perform liveness check if enabled
     if liveness_enabled:
+        # 1. Passive Liveness Check (Laplacian, FFT, Glare)
         check_passive_liveness(
             img, 
             faces[0].bbox, 
@@ -117,6 +169,16 @@ def extract_face_embedding(
             max_fft=max_fft, 
             max_glare=max_glare
         )
+        
+        # 2. Active Liveness Check (Pose)
+        pose = None
+        if hasattr(faces[0], 'pose'):
+            pose = faces[0].pose
+        elif isinstance(faces[0], dict) and 'pose' in faces[0]:
+            pose = faces[0]['pose']
+            
+        check_active_liveness(pose, required_gesture)
     
     # Return the embedding vector
     return faces[0].embedding
+
