@@ -82,9 +82,74 @@ def init_db():
         expires_at TIMESTAMP NOT NULL
     );
     """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS audit_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        username VARCHAR(50),
+        action VARCHAR(100) NOT NULL,
+        status VARCHAR(20) NOT NULL,
+        ip_address VARCHAR(45),
+        details TEXT
+    );
+    """)
     conn.commit()
     cursor.close()
     conn.close()
+
+def log_audit(action: str, status: str, username: str = None, ip_address: str = None, details: str = None):
+    """
+    Logs security events into the audit_logs SQLite table.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+        INSERT INTO audit_logs (username, action, status, ip_address, details)
+        VALUES (?, ?, ?, ?, ?);
+        """, (username, action, status, ip_address, details))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        import logging
+        logging.getLogger("face-auth-api").error(f"Failed to log audit event to DB: {e}")
+    finally:
+        cursor.close()
+        conn.close()
+
+def fetch_audit_logs(limit: int = 100):
+    """
+    Fetches the latest security audit logs from the database.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+        SELECT id, timestamp, username, action, status, ip_address, details
+        FROM audit_logs
+        ORDER BY timestamp DESC
+        LIMIT ?;
+        """, (limit,))
+        rows = cursor.fetchall()
+        logs = []
+        for r in rows:
+            logs.append({
+                "id": r[0],
+                "timestamp": r[1],
+                "username": r[2],
+                "action": r[3],
+                "status": r[4],
+                "ip_address": r[5],
+                "details": r[6]
+            })
+        return logs
+    except Exception as e:
+        import logging
+        logging.getLogger("face-auth-api").error(f"Failed to fetch audit logs: {e}")
+        return []
+    finally:
+        cursor.close()
+        conn.close()
 
 def register(username, fullname, face_emb):
     """
