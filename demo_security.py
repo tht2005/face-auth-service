@@ -35,7 +35,7 @@ except ImportError:
     sys.exit(1)
 
 def demo_replay_attack():
-    print_header("KỊCH BẢN 1: API REPLAY & CHALLENGE TOKEN ATTACK (KIỂM TRA TÍNH HỢP LỆ)")
+    print_header("TẤN CÔNG MẠO DANH & GIẢ MẠO CHỮ KÝ TOKEN (USERNAME MISMATCH & ROGUE TOKEN)")
     api_url = "http://localhost:8000"
     username = "attacker_user"
     
@@ -50,7 +50,7 @@ def demo_replay_attack():
         gesture = data.get("gesture")
         print(f"{GREEN}[+] Lấy token thành công!{RESET}")
         print(f"    Token: {YELLOW}{token[:60]}...{RESET}")
-        print(f"    Thách thức cử chỉ được yêu cầu: {BOLD}{gesture}{RESET}")
+        print(f"    Cử chỉ được yêu cầu: {BOLD}{gesture}{RESET}")
     except requests.exceptions.ConnectionError:
         print(f"{RED}[-] LỖI: Không thể kết nối tới API tại {api_url}.{RESET}")
         print(f"    Vui lòng chạy API service trước (ví dụ: docker compose up).{RESET}")
@@ -108,7 +108,7 @@ def demo_replay_attack():
         print(f"{RED}[-] KẾT QUẢ: Phòng thủ THẤT BẠI! Hệ thống chấp nhận token lỗi.{RESET}")
 
 def demo_timeouts():
-    print_header("KỊCH BẢN 2: QUÁ HẠN XÁC THỰC (CHALLENGE TOKEN & SESSION JWT TIMEOUT)")
+    print_header("QUÁ HẠN XÁC THỰC (CHALLENGE TOKEN & SESSION JWT TIMEOUT)")
     api_url = "http://localhost:8000"
     username = "timeout_victim"
     
@@ -171,7 +171,7 @@ def demo_timeouts():
         print(f"{RED}[-] KẾT QUẢ: Phòng thủ THẤT BẠI! Hệ thống vẫn chấp nhận Session Token đã quá hạn.{RESET}")
 
 def demo_challenge_reuse_attack():
-    print_header("KỊCH BẢN 2: CHALLENGE TOKEN REUSE ATTACK (CHỐNG REPLAY BẰNG NONCE BLACKLIST)")
+    print_header("TẤN CÔNG PHÁT LẠI YÊU CẦU ĐĂNG NHẬP (REPLAY ATTACK)")
     api_url = "http://localhost:8000"
     username = "replay_victim"
     
@@ -243,7 +243,7 @@ def simulate_active_liveness(pose, required_gesture):
     return True
 
 def demo_active_liveness_checks():
-    print_header("KỊCH BẢN 3: ACTIVE LIVENESS SPOOFING ATTACK (SO KHỚP CỬ CHỈ ĐỘNG - POSE ESTIMATION)")
+    print_header("ACTIVE LIVENESS SPOOFING ATTACK (SO KHỚP CỬ CHỈ ĐỘNG - POSE ESTIMATION)")
     
     # Scenario A: Server requests LOOK_LEFT, but attacker sends a frontal photo
     print(f"{CYAN}[*] Thử nghiệm 3a: Server yêu cầu xoay đầu sang TRÁI (LOOK_LEFT) nhưng người dùng gửi ảnh NHÌN THẲNG...{RESET}")
@@ -282,52 +282,105 @@ def simulate_db_validation(username):
         raise PermissionError(f"Account '{username}' is locked!")
     return True
 
+def get_challenge_token_for_normal_gesture(username):
+    url = "http://localhost:8000/api/auth/challenge"
+    attempts = 0
+    while attempts < 15:
+        attempts += 1
+        try:
+            r = requests.get(url, params={"username": username})
+            if r.status_code != 200:
+                return None
+            data = r.json()
+            if data.get("gesture") == "NORMAL":
+                return data.get("challenge_token")
+        except Exception:
+            pass
+        time.sleep(0.05)
+    return None
+
 def demo_lockout_and_unknown():
-    print_header("KỊCH BẢN 4: ACCOUNT LOCKOUT & PRINCIPAL UNKNOWN (XÁC THỰC LỚP CƠ SỞ DỮ LIỆU)")
+    print_header("ACCOUNT LOCKOUT & PRINCIPAL UNKNOWN (XÁC THỰC QUA API)")
+    api_url = "http://localhost:8000"
     db_path = os.getenv("DB_PATH", "backend/ekyc_matrix.db")
+    image_path = "sample_face.png"
     
-    # 4a. Principal Unknown
-    print(f"{CYAN}[*] Thử nghiệm 4a: Xác thực tài khoản chưa đăng ký ('non_existent_user')...{RESET}")
-    try:
-        simulate_db_validation("non_existent_user")
-        print(f"{RED}[- ] KẾT QUẢ: Thất bại! Cho phép đi tiếp.{RESET}")
-    except NameError as e:
-        print(f"{GREEN}[+] KẾT QUẢ: Phòng thủ THÀNH CÔNG! Lớp DB đã chặn và ném ra lỗi PRINCIPAL UNKNOWN.")
-        print(f"             Thông báo lỗi: {RED}{e}{RESET}")
-    except Exception as e:
-        print(f"{RED}[- ] KẾT QUẢ: Lỗi không mong đợi: {e}{RESET}")
+    if not os.path.exists(image_path):
+        print(f"{RED}[-] LỖI: Cần tệp {image_path} để thực hiện demo. Vui lòng tạo tệp ảnh này trước.{RESET}")
+        return
+
+    # 5a. Principal Unknown
+    print(f"{CYAN}[*] Thử nghiệm 5a: Đăng nhập tài khoản chưa đăng ký ('unknown_user')...{RESET}")
+    token = get_challenge_token_for_normal_gesture("unknown_user")
+    if not token:
+        print(f"{RED}[- ] Không lấy được challenge token cho unknown_user.{RESET}")
+        return
         
-    # 4b. Account Lockout
-    print(f"\n{CYAN}[*] Thử nghiệm 4b: Xác thực tài khoản đã bị khóa (is_active = FALSE)...{RESET}")
+    with open(image_path, "rb") as f:
+        files = {"file": ("face.png", f, "image/png")}
+        data = {"username": "unknown_user", "challenge_token": token, "liveness_enabled": "true"}
+        r = requests.post(f"{api_url}/api/login", data=data, files=files)
+        
+    print(f"    Mã phản hồi HTTP: {GREEN if r.status_code == 404 else RED}{r.status_code}{RESET}")
+    print(f"    Phản hồi từ Server: {RED}{r.text}{RESET}")
+    if r.status_code == 404 and "not found" in r.text.lower():
+        print(f"{GREEN}[+] KẾT QUẢ: Phòng thủ THÀNH CÔNG! Server chặn người dùng lạ và trả lỗi 404.{RESET}")
+    else:
+        print(f"{RED}[-] KẾT QUẢ: Phòng thủ THẤT BẠI! Phản hồi không chính xác.{RESET}")
+
+    # 5b. Account Lockout
+    print(f"\n{CYAN}[*] Thử nghiệm 5b: Đăng nhập tài khoản đã bị khóa ('locked_user')...{RESET}")
+    
+    # Clear if exists
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    try:
-        # Inject temporary locked user in DB
-        cursor.execute("""
-        INSERT INTO users (username, full_name, face_embedding_encrypted, is_active)
-        VALUES ('locked_user', 'Locked User', 'vault:v1:mock_ciphertext', 0)
-        ON CONFLICT(username) DO UPDATE SET is_active = 0;
-        """)
-        conn.commit()
-        print(f"{YELLOW}[!] Đã giả lập tài khoản 'locked_user' ở trạng thái bị khóa (is_active = 0) trong DB.{RESET}")
+    cursor.execute("DELETE FROM users WHERE username = 'locked_user';")
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    # Register locked_user first
+    with open(image_path, "rb") as f:
+        files = {"file": ("face.png", f, "image/png")}
+        data = {"username": "locked_user", "full_name": "Locked User", "liveness_enabled": "true"}
+        requests.post(f"{api_url}/api/register", data=data, files=files)
         
-        # Test validation
-        simulate_db_validation("locked_user")
-        print(f"{RED}[- ] KẾT QUẢ: Thất bại! Cho phép đăng nhập tài khoản bị khóa.{RESET}")
-    except PermissionError as e:
-        print(f"{GREEN}[+] KẾT QUẢ: Phòng thủ THÀNH CÔNG! Lớp DB chặn đăng nhập và ném ra lỗi ACCOUNT_LOCKED.")
-        print(f"             Thông báo lỗi: {RED}{e}{RESET}")
-    except Exception as e:
-        print(f"{RED}[- ] KẾT QUẢ: Lỗi không mong đợi: {e}{RESET}")
-    finally:
-        # Clean up
-        cursor.execute("DELETE FROM users WHERE username = 'locked_user';")
-        conn.commit()
-        cursor.close()
-        conn.close()
+    # Lock in DB
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET is_active = 0 WHERE username = 'locked_user';")
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print(f"{YELLOW}[!] Đã giả lập khóa tài khoản 'locked_user' (is_active = 0) trong DB.{RESET}")
+    
+    token = get_challenge_token_for_normal_gesture("locked_user")
+    if not token:
+        print(f"{RED}[- ] Không lấy được challenge token cho locked_user.{RESET}")
+        return
+        
+    with open(image_path, "rb") as f:
+        files = {"file": ("face.png", f, "image/png")}
+        data = {"username": "locked_user", "challenge_token": token, "liveness_enabled": "true"}
+        r = requests.post(f"{api_url}/api/login", data=data, files=files)
+        
+    print(f"    Mã phản hồi HTTP: {GREEN if r.status_code == 403 else RED}{r.status_code}{RESET}")
+    print(f"    Phản hồi từ Server: {RED}{r.text}{RESET}")
+    if r.status_code == 403 and "locked" in r.text.lower():
+        print(f"{GREEN}[+] KẾT QUẢ: Phòng thủ THÀNH CÔNG! Server từ chối tài khoản bị khóa (403 Forbidden).{RESET}")
+    else:
+        print(f"{RED}[-] KẾT QUẢ: Phòng thủ THẤT BẠI! Chấp nhận tài khoản bị khóa.{RESET}")
+        
+    # Clean up
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM users WHERE username = 'locked_user';")
+    conn.commit()
+    cursor.close()
+    conn.close()
 
 def demo_jwt_manipulation():
-    print_header("KỊCH BẢN 5: JWT SESSION MANIPULATION (GIẢ MẠO PHIÊN XÁC THỰC)")
+    print_header("JWT SESSION MANIPULATION (GIẢ MẠO PHIÊN XÁC THỰC)")
     api_url = "http://localhost:8000"
     
     print(f"{CYAN}[*] Bước 1: Kẻ tấn công tự sinh một cặp khóa RSA giả mạo (Rogue Keypair)...{RESET}")
@@ -363,7 +416,7 @@ def demo_jwt_manipulation():
         print(f"{RED}[-] LỖI: Không thể kết nối tới API tại {api_url}.{RESET}")
 
 def demo_database_leakage():
-    print_header("KỊCH BẢN 6: DATABASE LEAKAGE (RÒ RỈ CƠ SỞ DỮ LIỆU BẢN MẪU SINH TRẮC)")
+    print_header("DATABASE LEAKAGE (RÒ RỈ CƠ SỞ DỮ LIỆU BẢN MẪU SINH TRẮC)")
     db_path = os.getenv("DB_PATH", "backend/ekyc_matrix.db")
     
     print(f"{CYAN}[*] Kết nối trực tiếp cơ sở dữ liệu SQLite tại {db_path}...{RESET}")
@@ -402,7 +455,7 @@ def demo_database_leakage():
         print(f"    Chi tiết: {e}")
 
 def demo_asymmetric_verification():
-    print_header("KỊCH BẢN 7: ASYMMETRIC VERIFICATION (THIRD-PARTY KHÔNG CẦN CHIA SẺ SECRET)")
+    print_header("ASYMMETRIC VERIFICATION (THIRD-PARTY KHÔNG CẦN CHIA SẺ SECRET)")
     api_url = "http://localhost:8000"
     
     print(f"{CYAN}[*] Bước 1: Mô phỏng Dịch vụ bên thứ ba (Third-party) gọi API lấy Khóa công khai từ `{api_url}/api/certs`...{RESET}")
@@ -448,7 +501,7 @@ def demo_asymmetric_verification():
         print(f"{RED}[-] KẾT QUẢ: Xác thực thất bại cục bộ. Lỗi: {e}{RESET}")
 
 def demo_registration_attacks():
-    print_header("KỊCH BẢN 9: TẤN CÔNG GIAO THỨC ĐĂNG KÝ (REGISTRATION PROTOCOL ATTACKS)")
+    print_header("TẤN CÔNG GIAO THỨC ĐĂNG KÝ (REGISTRATION PROTOCOL ATTACKS)")
     db_path = os.getenv("DB_PATH", "backend/ekyc_matrix.db")
     username = "test_registration_user"
     mock_vector = "vault:v1:mock_encrypted_face_embedding_data_for_reg"
@@ -499,7 +552,7 @@ def demo_registration_attacks():
         conn.close()
 
 def demo_vault_compromise():
-    print_header("KỊCH BẢN 10: VAULT KMS COMPROMISE (KHI HỆ THỐNG VAULT BỊ TẤN CÔNG / RÒ RỈ TOKEN)")
+    print_header("VAULT KMS COMPROMISE (KHI HỆ THỐNG VAULT BỊ TẤN CÔNG / RÒ RỈ TOKEN)")
     
     # Load env variables manually from .env
     env = {}
@@ -595,7 +648,7 @@ def demo_vault_compromise():
         print(f"{RED}[- ] LỖI khi gọi Vault API: {e}{RESET}")
 
 def demo_mitm_key_substitution():
-    print_header("KỊCH BẢN 11: TẤN CÔNG GIẢ MẠO SERVER (MITM PUBLIC KEY SUBSTITUTION)")
+    print_header("TẤN CÔNG GIẢ MẠO SERVER (MITM PUBLIC KEY SUBSTITUTION)")
     
     print(f"{CYAN}[*] Bước 1: Kẻ tấn công tạo một cặp khóa RSA giả mạo (Rogue Keypair)...{RESET}")
     rogue_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -636,54 +689,152 @@ def demo_mitm_key_substitution():
     except Exception as e:
         print(f"{GREEN}[+] KẾT QUẢ: Phòng thủ THÀNH CÔNG! Token bị bác bỏ: {e}{RESET}")
 
+def demo_happy_path():
+    print_header("HAPPY PATH (XÁC THỰC KHUÔN MẶT ĐẦU CUỐI THÀNH CÔNG)")
+    api_url = "http://localhost:8000"
+    db_path = os.getenv("DB_PATH", "backend/ekyc_matrix.db")
+    image_path = "sample_face.png"
+    username = "happy_user"
+    
+    if not os.path.exists(image_path):
+        print(f"{RED}[-] LỖI: Cần tệp {image_path} để thực hiện demo. Vui lòng tạo tệp ảnh này trước.{RESET}")
+        return
+
+    # Clean up first
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM users WHERE username = ?;", (username,))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    # 1. Register
+    print(f"{CYAN}[*] Bước 1: Đăng ký người dùng mới '{username}' với ảnh khuôn mặt thực...{RESET}")
+    with open(image_path, "rb") as f:
+        files = {"file": ("face.png", f, "image/png")}
+        data = {"username": username, "full_name": "Happy User", "liveness_enabled": "true"}
+        r = requests.post(f"{api_url}/api/register", data=data, files=files)
+    if r.status_code != 200:
+        print(f"{RED}[-] Đăng ký thất bại: {r.text}{RESET}")
+        return
+    print(f"{GREEN}[+] Đăng ký tài khoản '{username}' thành công!{RESET}")
+
+    # 2. Get Challenge
+    token = get_challenge_token_for_normal_gesture(username)
+    if not token:
+        print(f"{RED}[- ] Không lấy được challenge token cho cử chỉ NORMAL.{RESET}")
+        return
+
+    # 3. Login
+    print(f"\n{CYAN}[*] Bước 2: Đăng nhập bằng ảnh và cử chỉ khớp với challenge token...{RESET}")
+    with open(image_path, "rb") as f:
+        files = {"file": ("face.png", f, "image/png")}
+        data = {"username": username, "challenge_token": token, "liveness_enabled": "true"}
+        r = requests.post(f"{api_url}/api/login", data=data, files=files)
+        
+    print(f"    Mã phản hồi HTTP: {GREEN if r.status_code == 200 else RED}{r.status_code}{RESET}")
+    print(f"    Phản hồi từ Server: {r.text}")
+    if r.status_code == 200:
+        print(f"{GREEN}[+] KẾT QUẢ: Xác thực THÀNH CÔNG! Nhận được JWT Session Token.{RESET}")
+    else:
+        print(f"{RED}[-] KẾT QUẢ: Xác thực THẤT BẠI!{RESET}")
+
+    # Clean up
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM users WHERE username = ?;", (username,))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+def register_mock_users():
+    db_path = os.getenv("DB_PATH", "backend/ekyc_matrix.db")
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    mock_users = [
+        ("attacker_user", "Attacker User"),
+        ("victim_user", "Victim User"),
+        ("timeout_victim", "Timeout Victim"),
+        ("replay_victim", "Replay Victim")
+    ]
+    for username, fullname in mock_users:
+        cursor.execute("""
+        INSERT INTO users (username, full_name, face_embedding_encrypted, is_active)
+        VALUES (?, ?, 'vault:v1:mock_encrypted_face_embedding_data', 1)
+        ON CONFLICT(username) DO UPDATE SET is_active = 1;
+        """, (username, fullname))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print(f"{GREEN}[+] Đã đăng ký tạm thời các tài khoản mock phục vụ demo: attacker_user, victim_user, timeout_victim, replay_victim.{RESET}")
+
+def cleanup_mock_users():
+    db_path = os.getenv("DB_PATH", "backend/ekyc_matrix.db")
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    mock_users = ["attacker_user", "victim_user", "timeout_victim", "replay_victim"]
+    for username in mock_users:
+        cursor.execute("DELETE FROM users WHERE username = ?;", (username,))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print(f"{GREEN}[+] Đã dọn dẹp các tài khoản mock khỏi database.{RESET}")
+
 def main():
-    while True:
-        print(f"\n{BLUE}{BOLD}===================================================================={RESET}")
-        print(f"{BLUE}{BOLD}   HỆ THỐNG DEMO TẤN CÔNG & PHÒNG THỦ NÂNG CAO (eKYC API - RS256)   {RESET}")
-        print(f"{BLUE}{BOLD}===================================================================={RESET}")
-        print(f" 1. Demo Tấn công Replay & Giả mạo Token (Challenge/Rogue Token Check)")
-        print(f" 2. Demo Quá hạn Xác thực (Challenge & Session Timeout)")
-        print(f" 3. Demo Tấn công Thử lại Token (Replay ngăn bằng Nonce Blacklist)")
-        print(f" 4. Demo Tấn công Giả mạo Cử chỉ (Active Liveness Pose Mismatch)")
-        print(f" 5. Demo Tấn công Đăng nhập Khóa tài khoản & Tài khoản chưa đăng ký")
-        print(f" 6. Demo Tấn công Sửa đổi JWT Token (Session Hijack chặn bằng RSA)")
-        print(f" 7. Demo Tấn công Đọc trộm Cơ sở dữ liệu (Database Leak bảo vệ bằng Vault)")
-        print(f" 8. Demo Xác thực Asymmetric JWT (Third-party verify dùng public key)")
-        print(f" 9. Demo Tấn công Giao thức Đăng ký (Duplicate Registration Overwrite)")
-        print(f" 10. Demo Tấn công Hệ thống Vault KMS (Steal Token / Key Export Check)")
-        print(f" 11. Demo Tấn công Giả mạo Server (MitM Public Key Substitution)")
-        print(f" 12. Thoát")
-        print(f"{BLUE}--------------------------------------------------------------------{RESET}")
-        try:
-            choice = input(f"{BOLD}Chọn chức năng (1-12): {RESET}").strip()
-            if choice == '1':
-                demo_replay_attack()
-            elif choice == '2':
-                demo_timeouts()
-            elif choice == '3':
-                demo_challenge_reuse_attack()
-            elif choice == '4':
-                demo_active_liveness_checks()
-            elif choice == '5':
-                demo_lockout_and_unknown()
-            elif choice == '6':
-                demo_jwt_manipulation()
-            elif choice == '7':
-                demo_database_leakage()
-            elif choice == '8':
-                demo_asymmetric_verification()
-            elif choice == '9':
-                demo_registration_attacks()
-            elif choice == '10':
-                demo_vault_compromise()
-            elif choice == '11':
-                demo_mitm_key_substitution()
-            elif choice == '12':
+    register_mock_users()
+    try:
+        while True:
+            print(f"\n{BLUE}{BOLD}===================================================================={RESET}")
+            print(f"{BLUE}{BOLD}   HỆ THỐNG DEMO TẤN CÔNG & PHÒNG THỦ {RESET}")
+            print(f"{BLUE}{BOLD}===================================================================={RESET}")
+            print(f" 1. Demo Tấn công Mạo danh & Giả mạo Chữ ký (Username Mismatch & Rogue Token)")
+            print(f" 2. Demo Quá hạn Xác thực (Challenge & Session Timeout)")
+            print(f" 3. Demo Tấn công Phát lại Yêu cầu Đăng nhập (Replay Attack)")
+            print(f" 4. Demo Tấn công Giả mạo Cử chỉ (Active Liveness Pose Mismatch)")
+            print(f" 5. Demo Tấn công Đăng nhập Khóa tài khoản & Tài khoản chưa đăng ký")
+            print(f" 6. Demo Tấn công Sửa đổi JWT Token (Session Hijack chặn bằng RSA)")
+            print(f" 7. Demo Tấn công Đọc trộm Cơ sở dữ liệu (Database Leak bảo vệ bằng Vault)")
+            print(f" 8. Demo Xác thực Asymmetric JWT (Third-party verify dùng public key)")
+            print(f" 9. Demo Tấn công Giao thức Đăng ký (Duplicate Registration Overwrite)")
+            print(f" 10. Demo Tấn công Hệ thống Vault KMS (Steal Token / Key Export Check)")
+            print(f" 11. Demo Tấn công Giả mạo Server (MitM Public Key Substitution)")
+            print(f" 12. Demo Happy Path (Xác thực khuôn mặt thành công đầu cuối)")
+            print(f" 13. Thoát")
+            print(f"{BLUE}--------------------------------------------------------------------{RESET}")
+            try:
+                choice = input(f"{BOLD}Chọn chức năng (1-13): {RESET}").strip()
+                if choice == '1':
+                    demo_replay_attack()
+                elif choice == '2':
+                    demo_timeouts()
+                elif choice == '3':
+                    demo_challenge_reuse_attack()
+                elif choice == '4':
+                    demo_active_liveness_checks()
+                elif choice == '5':
+                    demo_lockout_and_unknown()
+                elif choice == '6':
+                    demo_jwt_manipulation()
+                elif choice == '7':
+                    demo_database_leakage()
+                elif choice == '8':
+                    demo_asymmetric_verification()
+                elif choice == '9':
+                    demo_registration_attacks()
+                elif choice == '10':
+                    demo_vault_compromise()
+                elif choice == '11':
+                    demo_mitm_key_substitution()
+                elif choice == '12':
+                    demo_happy_path()
+                elif choice == '13':
+                    break
+                else:
+                    print(f"{RED}Lựa chọn không hợp lệ. Vui lòng nhập từ 1 đến 13.{RESET}")
+            except KeyboardInterrupt:
                 break
-            else:
-                print(f"{RED}Lựa chọn không hợp lệ. Vui lòng nhập từ 1 đến 12.{RESET}")
-        except KeyboardInterrupt:
-            break
+    finally:
+        cleanup_mock_users()
 
 if __name__ == "__main__":
     main()
