@@ -71,49 +71,66 @@ def print_header(title):
     print(f"{BLUE}{BOLD}  {title}{RESET}")
     print(f"{BLUE}{BOLD}{'='*75}{RESET}")
 
+PROCESSED_DIR = os.path.join(LFW_DIR, "processed")
+
+def pre_generate_processed_images():
+    print_header("KHỞI TẠO BỘ DỮ LIỆU MÔ PHỎNG TẤN CÔNG (IMAGE PROCESSING)")
+    if not os.path.exists(PROCESSED_DIR):
+        os.makedirs(PROCESSED_DIR)
+        
+    import cv2
+    import numpy as np
+    
+    for name in CLEAN_USERS:
+        src_path = USER_IMAGES[name]
+        img = cv2.imread(src_path)
+        if img is None:
+            print(f"{RED}[-] Không thể đọc file ảnh: {src_path}{RESET}")
+            continue
+            
+        # 1. Blurry images (Print attack checks)
+        # Weak blur (may pass or fail)
+        cv2.imwrite(os.path.join(PROCESSED_DIR, f"{name}_blur_weak.png"), cv2.GaussianBlur(img, (3, 3), 0))
+        # Medium blur (mostly fail)
+        cv2.imwrite(os.path.join(PROCESSED_DIR, f"{name}_blur_medium.png"), cv2.GaussianBlur(img, (5, 5), 0))
+        # Strong blur (definitely fail)
+        cv2.imwrite(os.path.join(PROCESSED_DIR, f"{name}_blur_strong.png"), cv2.GaussianBlur(img, (11, 11), 0))
+        
+        # 2. Screen/Moiré images (Screen attack checks)
+        h, w, _ = img.shape
+        
+        # 2. Screen/Moiré images (Screen attack checks)
+        h, w, _ = img.shape
+        y_grid, x_grid = np.meshgrid(np.arange(h), np.arange(w), indexing='ij')
+        
+        # Weak screen grid (period h // 30, amplitude 20) - mostly pass
+        period_w = max(4, h // 30)
+        sine_pattern_w = 20.0 * np.sin(2.0 * np.pi / period_w * x_grid) * np.sin(2.0 * np.pi / period_w * y_grid)
+        img_sw = np.clip(img.astype(np.float32) + sine_pattern_w[:, :, np.newaxis], 0, 255).astype(np.uint8)
+        cv2.imwrite(os.path.join(PROCESSED_DIR, f"{name}_screen_weak.png"), img_sw)
+        
+        # Medium screen grid (period h // 40, amplitude 50) - some pass, some fail
+        period_m = max(4, h // 40)
+        sine_pattern_m = 50.0 * np.sin(2.0 * np.pi / period_m * x_grid) * np.sin(2.0 * np.pi / period_m * y_grid)
+        img_sm = np.clip(img.astype(np.float32) + sine_pattern_m[:, :, np.newaxis], 0, 255).astype(np.uint8)
+        cv2.imwrite(os.path.join(PROCESSED_DIR, f"{name}_screen_medium.png"), img_sm)
+        
+        # Strong screen grid (period h // 40, amplitude 70) - definitely fail
+        period_s = max(4, h // 40)
+        sine_pattern_s = 70.0 * np.sin(2.0 * np.pi / period_s * x_grid) * np.sin(2.0 * np.pi / period_s * y_grid)
+        img_ss = np.clip(img.astype(np.float32) + sine_pattern_s[:, :, np.newaxis], 0, 255).astype(np.uint8)
+        cv2.imwrite(os.path.join(PROCESSED_DIR, f"{name}_screen_strong.png"), img_ss)
+        
+    print(f"{GREEN}[+] Đã tiền xử lý và tạo các phiên bản ảnh mô phỏng tấn công (Mờ & Grid Moiré) thành công.{RESET}")
+
 def download_lfw_dataset():
-    print_header("TẢI BẢN MẪU HÌNH ẢNH KHUÔN MẶT TỪ DATASET LFW")
-    if os.path.exists(os.path.join(LFW_DIR, "ori")):
-        print(f"{GREEN}[+] Phát hiện thư mục dữ liệu thật 'lfw_sample/ori/'. Bỏ qua tải/giả lập offline.{RESET}")
-        return
-    if not os.path.exists(LFW_DIR):
-        os.makedirs(LFW_DIR)
-        
-    download_failed = False
-    for name, url in LFW_PEOPLE.items():
-        filepath = os.path.join(LFW_DIR, f"{name}.jpg")
-        if not os.path.exists(filepath):
-            print(f"{CYAN}[*] Đang tải ảnh LFW của '{name}'...{RESET}")
-            try:
-                urllib.request.urlretrieve(url, filepath)
-                print(f"{GREEN}[+] Tải thành công: {filepath}{RESET}")
-            except Exception as e:
-                print(f"{RED}[-] Không thể tải {url}. Lỗi: {e}{RESET}")
-                download_failed = True
-                break
-        else:
-            print(f"{GREEN}[+] Đã có sẵn: {filepath}{RESET}")
-            
-    if download_failed:
-        print(f"\n{YELLOW}[!] CẢNH BÁO: Không có kết nối mạng hoặc lỗi tải LFW dataset.{RESET}")
-        print(f"{YELLOW}[!] Tự động chuyển sang chế độ Offline/Dự phòng sử dụng 'sample_face.png' cục bộ...{RESET}")
-        
-        if os.path.exists("sample_face.png"):
-            import shutil
-            
-            # Copy sample_face.png for registered clean users
-            for name in CLEAN_USERS:
-                filepath = os.path.join(LFW_DIR, f"{name}.jpg")
-                shutil.copy("sample_face.png", filepath)
-                
-            # Write 1x1 blank JPEG bytes to simulate invalid spoofing profiles (valid JPEG structure but no face)
-            for name in BLURRED_USERS:
-                filepath = os.path.join(LFW_DIR, f"{name}.jpg")
-                with open(filepath, "wb") as f:
-                    f.write(BLANK_JPEG)
-            print(f"{GREEN}[+] Đã cấu trúc 10 ảnh mẫu offline (5 khuôn mặt thật, 5 ảnh giả mạo 1x1 pixel hợp lệ).{RESET}")
-        else:
-            print(f"{RED}[-] LỖI: Không tìm thấy 'sample_face.png' để chạy dự phòng.{RESET}")
+    print_header("KIỂM TRA THƯ MỤC DỮ LIỆU GỐC")
+    ori_dir = os.path.join(LFW_DIR, "ori")
+    if not os.path.exists(ori_dir):
+        print(f"{RED}[-] LỖI: Không tìm thấy thư mục dữ liệu gốc '{ori_dir}'. Vui lòng chuẩn bị các ảnh face1.png ... face7.png trong đó.{RESET}")
+        sys.exit(1)
+    print(f"{GREEN}[+] Đã phát hiện thư mục dữ liệu thật: {ori_dir}{RESET}")
+    pre_generate_processed_images()
 
 def get_db_connection():
     return sqlite3.connect(DB_PATH)
@@ -374,13 +391,14 @@ def run_statistics():
         # 7. Biometric Spoof (Print)
         token = get_any_challenge_token(user_a)
         if token:
-            with open(img_a_path, "rb") as f:
-                files = {"file": (filename_a, f, mime_a)}
+            blur_type = ["weak", "medium", "strong"][i % 3]
+            img_blur_path = os.path.join(PROCESSED_DIR, f"{user_a}_blur_{blur_type}.png")
+            with open(img_blur_path, "rb") as f:
+                files = {"file": (f"{user_a}_blur_{blur_type}.png", f, "image/png")}
                 data = {
                     "username": user_a, 
                     "challenge_token": token, 
-                    "liveness_enabled": "true",
-                    "min_laplacian": 10000.0
+                    "liveness_enabled": "true"
                 }
                 r = requests.post(f"{API_URL}/api/login", data=data, files=files)
                 if r.status_code == 400 and "texture too flat/blurry" in r.text.lower():
@@ -391,16 +409,15 @@ def run_statistics():
         # 8. Biometric Spoof (Screen)
         token = get_any_challenge_token(user_a)
         if token:
-            with open(img_a_path, "rb") as f:
-                files = {"file": (filename_a, f, mime_a)}
+            screen_type = ["weak", "medium", "strong"][i % 3]
+            img_screen_path = os.path.join(PROCESSED_DIR, f"{user_a}_screen_{screen_type}.png")
+            with open(img_screen_path, "rb") as f:
+                files = {"file": (f"{user_a}_screen_{screen_type}.png", f, "image/png")}
                 data = {
                     "username": user_a, 
                     "challenge_token": token, 
                     "liveness_enabled": "true",
-                    "min_laplacian": -1.0,
-                    "min_fft": -2.0,
-                    "max_fft": -1.0,
-                    "max_glare": 2.0
+                    "max_fft": "0.55"
                 }
                 r = requests.post(f"{API_URL}/api/login", data=data, files=files)
                 if r.status_code == 400 and "unnatural high-frequency" in r.text.lower():
@@ -428,7 +445,7 @@ def run_statistics():
         if token:
             with open(img_a_path, "rb") as f:
                 files = {"file": (filename_a, f, mime_a)}
-                data = {"username": user_a, "challenge_token": token, "liveness_enabled": "false"}
+                data = {"username": user_a, "challenge_token": token, "liveness_enabled": "true"}
                 r = requests.post(f"{API_URL}/api/login", data=data, files=files)
                 if r.status_code == 200:
                     scenarios["TC-13: Happy Path Logins"]["passed"] += 1
